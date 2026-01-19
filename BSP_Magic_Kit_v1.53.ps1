@@ -1,6 +1,6 @@
 $_creator = "Mike Lu (lu.mike@inventec.com)"
-$_version = 1.51
-$_changedate = 1/14/2026
+$_version = 1.53
+$_changedate = 1/17/2026
 
 
 # User-defined settings
@@ -124,6 +124,7 @@ $driverCheckList = @(
 	@{ path = "Camera_Optin_WOA/MEPOptInCameraExt.inf"; label = "MEP opt-in" }
 	@{ path = "qcSensors$product_id/qcSensors$product_id.inf"; label = "Sensor" }
     @{ path = "qcSensorsConfigCrd$product_id/qcSensorsConfigCrd$product_id.inf"; label = "SensorConfig" }
+	@{ path = "LID_Service/HmxLaptopLidMonitor.inf"; label = "HMX LID service" }
     @{ path = "qcsubsys_ext_adsp$product_id/qcsubsys_ext_adsp$product_id.inf"; label = "aDSP" }
     @{ path = "QcTreeExtOem$product_id/QcTreeExtOem$product_id.inf"; label = "QcTreeExtOem" }
 	@{ path = "QcTreeExtQcom$product_id/QcTreeExtQcom$product_id.inf"; label = "QcTreeExtQcom" }
@@ -1105,7 +1106,8 @@ switch ($mainSelection) {
                     $isQCDeviceInfo = ($subSub.Name -eq 'qcdeviceinfo')
                     $isARM64WithQcdpps = ($subSub.Name -eq 'ARM64' -and (Test-Path (Join-Path $subSub.FullName 'qcdpps.exe')))
                     $isARM64WithQdcmlib = ($subSub.Name -eq 'ARM64' -and (Test-Path (Join-Path $subSub.FullName 'qdcmlib.dll')))
-                    if (-not ($isADSP -or $isCDSP -or $isHTP -or $isQCDeviceInfo -or $isARM64WithQcdpps -or $isARM64WithQdcmlib)) {
+					$isARM64WithQcppte = ($subSub.Name -eq 'ARM64' -and (Test-Path (Join-Path $subSub.FullName 'qcppte8480.exe')))
+                    if (-not ($isADSP -or $isCDSP -or $isHTP -or $isQCDeviceInfo -or $isARM64WithQcdpps -or $isARM64WithQdcmlib -or $isARM64WithQcppte)) {
                         Write-Host "Found sub-directory in $($sub.Name) folder!" -ForegroundColor Red
                         Write-Host ""
                         Read-Host "Press Enter to exit..."
@@ -1676,7 +1678,8 @@ switch ($mainSelection) {
                     $isQCDeviceInfo = ($subSub.Name -eq 'qcdeviceinfo')
                     $isARM64WithQcdpps = ($subSub.Name -eq 'ARM64' -and (Test-Path (Join-Path $subSub.FullName 'qcdpps.exe')))
                     $isARM64WithQdcmlib = ($subSub.Name -eq 'ARM64' -and (Test-Path (Join-Path $subSub.FullName 'qdcmlib.dll')))
-                    if (-not ($isADSP -or $isCDSP -or $isHTP -or $isQCDeviceInfo -or $isARM64WithQcdpps -or $isARM64WithQdcmlib)) {
+					$isARM64WithQcppte = ($subSub.Name -eq 'ARM64' -and (Test-Path (Join-Path $subSub.FullName 'qcppte8480.exe')))
+                    if (-not ($isADSP -or $isCDSP -or $isHTP -or $isQCDeviceInfo -or $isARM64WithQcdpps -or $isARM64WithQdcmlib -or $isARM64WithQcppte)) {
                         Write-Host "Found sub-directory in $($sub.Name) folder!" -ForegroundColor Red
                         Write-Host ""
                         Read-Host "Press Enter to exit..."
