@@ -1,6 +1,9 @@
 $_creator = "Mike Lu (lu.mike@inventec.com)"
-$_version = 1.53
-$_changedate = 1/17/2026
+$_version = 1.55
+$_changedate = 3/19/2026
+
+
+# Set-ExecutionPolicy RemoteSigned
 
 
 # User-defined settings
@@ -26,10 +29,6 @@ $rename_efi = $true
 
 # BSP to ISO mapping
 $bspToIsoMapping = @{
-	'r03000' = '27902'
-	'r03300' = '27902'
-	'r03500' = '27924'
-	'r03500_x2' = '27924'
 	'r03900' = '27950'
 	'r03900_x2' = '27965'
 	'r04000' = '27965'
@@ -41,6 +40,8 @@ $bspToIsoMapping = @{
 	'r04400_x1' = '28000'
 	'r04500' = '28000'
 	'r04500_x3' = '28000'
+	'r04500_x6' = '28000'
+	'r04800' = '28000'
 	'Glymur.WP.1.0.c4' = '28000'
 	'Glymur.WP.1.0.c94' = '28000'
 }
@@ -65,8 +66,12 @@ $driverConfigs = @(
             "qcdxext_qcb$product_id"
 			"HalExtQCWdogTimer$product_id"
 			"qccamai$product_id"
-			#"qcdiagbridge$product_id"
-			#"qcdiagrouter$product_id"
+			"qcdiagbridge$product_id"
+			"qcdiagrouter$product_id"
+			"emmcdl"
+			"qcfactory"
+			"QcScanFix"
+			"qcsecurity"
         )
         add_driver = @(
             "qccamflash_ext$product_id"  # Added to the later of qccamflash$product_id
@@ -107,8 +112,12 @@ $driverConfigs = @(
 			"Qccamultrawidesensor$product_id"
 			"qccamultrawidesensor_extension$product_id"
 			"qccamtelesensor_extension$product_id"
-			#"qcdiagbridge$product_id"
-			#"qcdiagrouter$product_id"
+			"qcdiagbridge$product_id"
+			"qcdiagrouter$product_id"
+			"emmcdl"
+			"qcfactory"
+			"QcScanFix"
+			"qcsecurity"
         )
         add_driver = @()
     }
@@ -121,16 +130,17 @@ $driverCheckList = @(
     @{ path = "qccamfrontsensor_extension$product_id/qccamfrontsensor_extension$product_id.inf"; label = "Camera (5MP)" }
     @{ path = "qccamisp_ext$product_id/qccamisp_ext$product_id.inf"; label = "Camera (ISP)" }
 	@{ path = "CameraComponent/mep_camera_component.inf"; label = "MEP" }
-	@{ path = "Camera_Optin_WOA/MEPOptInCameraExt.inf"; label = "MEP opt-in" }
+	# @{ path = "Camera_Optin_WOA/MEPOptInCameraExt.inf"; label = "MEP opt-in" }
 	@{ path = "qcSensors$product_id/qcSensors$product_id.inf"; label = "Sensor" }
     @{ path = "qcSensorsConfigCrd$product_id/qcSensorsConfigCrd$product_id.inf"; label = "SensorConfig" }
-	@{ path = "LID_Service/HmxLaptopLidMonitor.inf"; label = "HMX LID service" }
+	# @{ path = "LID_Service/HmxLaptopLidMonitor.inf"; label = "HMX LID service" }
     @{ path = "qcsubsys_ext_adsp$product_id/qcsubsys_ext_adsp$product_id.inf"; label = "aDSP" }
     @{ path = "QcTreeExtOem$product_id/QcTreeExtOem$product_id.inf"; label = "QcTreeExtOem" }
 	@{ path = "QcTreeExtQcom$product_id/QcTreeExtQcom$product_id.inf"; label = "QcTreeExtQcom" }
 	# @{ path = "qcnspmcdm$product_id/qcnspmcdm$product_id.inf"; label = "Hexagon NPU (cDSP)" }
 	# @{ path = "QcXhciFilter$product_id/QcXhciFilter$product_id.inf"; label = "xHCI" }
 	# @{ path = "QcUsb4Filter$product_id/QcUsb4Filter$product_id.inf"; label = "USB4" }
+	# @{ path = "QcUsbCUcsi$product_id/qcusbcucsi$product_id.inf"; label = "UCSI" }
 	# @{ path = "qcscm$product_id/qcscm$product_id.inf"; label = "QcSCM" }
 	# @{ path = "qcbluetooth$product_id/qcbluetooth$product_id.inf"; label = "BT" }
 	# @{ path = "qci2c$product_id/qci2c$product_id.inf"; label = "I2C bus" }
@@ -494,25 +504,46 @@ switch ($mainSelection) {
     '1' {
         # Download BSP
         # Get versions from ChipCode (both tags and branches)
-        $tags = git ls-remote --tags --heads https://chipmaster2.qti.qualcomm.com/home/git/inventec-corp/$product.git |
-            ForEach-Object {
-                # Match tags: refs/tags/r04400.2^{}
-                if ($_ -match "refs/tags/([^{}]+)\^\{\}") {
-                    $tag = $matches[1].Trim()
-                    $tag
-                }
-                # Match branches: refs/heads/Glymur.WP.1.0.c4
-                elseif ($_ -match "refs/heads/(.+)") {
-                    $branch = $matches[1].Trim()
-                    $branch
-                }
+		$old_repo_link = "https://chipmaster2.qti.qualcomm.com/home/git/inventec-corp/$product.git"
+		$new_repo_link = "https://qpm-git.qualcomm.com/home2/git/inventec-corp/$product.git"
+		
+        $lsRemoteOutput = git ls-remote --tags --heads $new_repo_link 2>&1
+        if ($LASTEXITCODE -ne 0) {
+            Write-Host ""
+            Write-Host "Failed to query releases from remote repo." -ForegroundColor Red
+            Write-Host ("Repo: {0}" -f $new_repo_link) -ForegroundColor DarkGray
+            Write-Host "git output:" -ForegroundColor DarkGray
+            Write-Host $lsRemoteOutput
+            Write-Host ""
+            Read-Host "Press Enter to exit..."
+            return
+        }
+
+        $tags = $lsRemoteOutput | ForEach-Object {
+            # Match tags: refs/tags/r04400.2^{}
+            if ($_ -match "refs/tags/([^{}]+)\^\{\}") {
+                $matches[1].Trim()
             }
+            # Match branches: refs/heads/Glymur.WP.1.0.c4
+            elseif ($_ -match "refs/heads/(.+)") {
+                $matches[1].Trim()
+            }
+        } | Where-Object { $_ -and $_.Trim() -ne "" }
+
+        if (-not $tags -or $tags.Count -eq 0) {
+            Write-Host ""
+            Write-Host "No releases found (tags/branches list is empty)." -ForegroundColor Yellow
+            Write-Host ("Repo: {0}" -f $new_repo_link) -ForegroundColor DarkGray
+            Write-Host ""
+            Read-Host "Press Enter to exit..."
+            return
+        }
 
         # Display the list
         Write-Host ""
         Write-Host "List of the releases:"
         $maxIndexLen = ($tags.Count).ToString().Length
-        foreach ($idx in 0..($tags.Count-1)) {
+        for ($idx = 0; $idx -lt $tags.Count; $idx++) {
             $num = ($idx+1).ToString().PadLeft($maxIndexLen)
             Write-Host ("{0}) {1}" -f $num, $tags[$idx])
         }
