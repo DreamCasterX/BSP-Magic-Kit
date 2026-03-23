@@ -1,6 +1,6 @@
 $_creator = "Mike Lu (lu.mike@inventec.com)"
-$_version = 1.55
-$_changedate = 3/19/2026
+$_version = 1.56
+$_changedate = 3/23/2026
 
 
 # Set-ExecutionPolicy RemoteSigned
@@ -29,21 +29,18 @@ $rename_efi = $true
 
 # BSP to ISO mapping
 $bspToIsoMapping = @{
+	'Glymur.WP.1.0.c4' = '28000'
+	'Glymur.WP.1.0.c94' = '28000'
 	'r03900' = '27950'
 	'r03900_x2' = '27965'
 	'r04000' = '27965'
 	'r04000_x1' = '27965'
-    'r04100' = '28000' # release note: 27975
 	'r04300' = '28000'
 	'r04300_x1' = '28000'
-	'r04400' = '28000'
-	'r04400_x1' = '28000'
 	'r04500' = '28000'
 	'r04500_x3' = '28000'
 	'r04500_x6' = '28000'
 	'r04800' = '28000'
-	'Glymur.WP.1.0.c4' = '28000'
-	'Glymur.WP.1.0.c94' = '28000'
 }
 
 # Specific driver settings for Installer
@@ -785,7 +782,7 @@ switch ($mainSelection) {
                             $useAlt = Read-Host " "
                         } until ($useAlt -eq 'y' -or $useAlt -eq 'Y' -or $useAlt -eq 'n' -or $useAlt -eq 'N')
                         if ($useAlt -eq 'y' -or $useAlt -eq 'Y') {
-                            $srcDriver = $altSrcDriver
+                            $srcDriver = $altSrcDriver8
                             $usedAltDriver = $true
                         } else {
                             Write-Host "Copy cancelled" -ForegroundColor Yellow
@@ -900,7 +897,7 @@ switch ($mainSelection) {
 
             
             # Check if ADK version matches expected ISO version
-            $adkVersionColor = "White"
+            $adkVersionColor = "DarkGray"
             if ($expectedIsoVersionForAdk -and $adkVersion -match "^.*$expectedIsoVersionForAdk.*$") {
                 $adkVersionColor = "Blue"
             } elseif ($expectedIsoVersionForAdk) {
@@ -982,7 +979,7 @@ switch ($mainSelection) {
                 Write-Host $isoFileName -ForegroundColor Blue
             } else {
                 Write-Host ("{0}) " -f ($i+1)) -NoNewline
-                Write-Host $isoFileName
+                Write-Host $isoFileName -ForegroundColor DarkGray
             }
         }
         do {
@@ -1074,7 +1071,7 @@ switch ($mainSelection) {
             }
             
             # Check if WinPE version matches expected ISO version
-            $winpeVersionColor = "White"
+            $winpeVersionColor = "DarkGray"
             if ($expectedIsoVersionForWinPE -and $winpeVersion -match "^.*$expectedIsoVersionForWinPE.*$") {
                 $winpeVersionColor = "Blue"
             } elseif ($expectedIsoVersionForWinPE) {
