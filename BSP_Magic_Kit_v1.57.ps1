@@ -1,6 +1,6 @@
 $_creator = "Mike Lu (lu.mike@inventec.com)"
-$_version = 1.56
-$_changedate = 3/23/2026
+$_version = 1.57
+$_changedate = 4/14/2026
 
 
 # Set-ExecutionPolicy RemoteSigned
@@ -31,16 +31,14 @@ $rename_efi = $true
 $bspToIsoMapping = @{
 	'Glymur.WP.1.0.c4' = '28000'
 	'Glymur.WP.1.0.c94' = '28000'
-	'r03900' = '27950'
-	'r03900_x2' = '27965'
-	'r04000' = '27965'
-	'r04000_x1' = '27965'
-	'r04300' = '28000'
-	'r04300_x1' = '28000'
 	'r04500' = '28000'
 	'r04500_x3' = '28000'
 	'r04500_x6' = '28000'
 	'r04800' = '28000'
+	'r04900' = '28000'
+	'r05000' = '28000'
+	'r05100' = '28000'
+	'r05200' = '28000'
 }
 
 # Specific driver settings for Installer
@@ -62,13 +60,13 @@ $driverConfigs = @(
             "qcdxext_idps$product_id"
             "qcdxext_qcb$product_id"
 			"HalExtQCWdogTimer$product_id"
-			"qccamai$product_id"
 			"qcdiagbridge$product_id"
 			"qcdiagrouter$product_id"
 			"emmcdl"
 			"qcfactory"
 			"QcScanFix"
 			"qcsecurity"
+			# "qccamai$product_id"  uncomment for builds earlier than r4900 
         )
         add_driver = @(
             "qccamflash_ext$product_id"  # Added to the later of qccamflash$product_id
@@ -120,7 +118,8 @@ $driverConfigs = @(
     }
 )
 $driverCheckList = @(
-    @{ path = "qcdxext_crd$product_id/qcdxext_crd$product_id.inf"; label = "Gfx" }
+    @{ path = "qcdx$product_id/qcdx$product_id.inf"; label = "Gfx (base)" }
+    @{ path = "qcdxext_crd$product_id/qcdxext_crd$product_id.inf"; label = "Gfx (ext)" }
 	@{ path = "qcasd_apo$product_id/qcasd_apo$product_id.inf"; label = "Audio (APO)" }
 	@{ path = "qcadx_ext$product_id/qcadx_ext$product_id.inf"; label = "Audio (SVA)" }
     @{ path = "qccamauxsensor_extension$product_id/qccamauxsensor_extension$product_id.inf"; label = "Camera (IR)" }
@@ -548,7 +547,7 @@ switch ($mainSelection) {
         # User input
         do {
             $selection = Read-Host "Enter the number"
-            $valid = $selection -match '^\d+$' -and $selection -ge 1 -and $selection -le $tags.Count
+            $valid = $selection -match '^\d+$' -and [int]$selection -ge 1 -and [int]$selection -le $tags.Count
             if (-not $valid) {
             }
         } until ($valid)
@@ -782,7 +781,7 @@ switch ($mainSelection) {
                             $useAlt = Read-Host " "
                         } until ($useAlt -eq 'y' -or $useAlt -eq 'Y' -or $useAlt -eq 'n' -or $useAlt -eq 'N')
                         if ($useAlt -eq 'y' -or $useAlt -eq 'Y') {
-                            $srcDriver = $altSrcDriver8
+                            $srcDriver = $altSrcDriver
                             $usedAltDriver = $true
                         } else {
                             Write-Host "Copy cancelled" -ForegroundColor Yellow
