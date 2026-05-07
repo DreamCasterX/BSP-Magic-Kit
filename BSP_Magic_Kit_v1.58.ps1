@@ -115,35 +115,7 @@ $driverConfigs = @(
 			"qcsecurity"
         )
         add_driver = @()
-    },
-    @{
-        name = "DominionQ"
-        remove_driver = @(
-            "qcSensorsConfig$product_id"
-            "Qccamtelesensor$product_id"
-            "Qccamultrawidesensor$product_id"
-            "qccamultrawidesensor_extension$product_id"
-            "qccamtelesensor_extension$product_id"
-            "qccamrearsensor_extension$product_id"
-            "qccamrearsensor$product_id"
-            "qcAlwaysOnSensing"
-			"qccamjpege_ffu$product_id"
-            "qcdxext_cdps$product_id"
-            "qcdxext_idp$product_id"
-            "qcdxext_idps$product_id"
-            "qcdxext_qcb$product_id"
-			"HalExtQCWdogTimer$product_id"
-			"qcdiagbridge$product_id"
-			"qcdiagrouter$product_id"
-			"emmcdl"
-			"qcfactory"
-			"QcScanFix"
-			"qcsecurity"
-        )
-        add_driver = @(
-            "qccamflash_ext$product_id"  # Added to the later of qccamflash$product_id
-        )
-    }	
+    }
 )
 $driverCheckList = @(
     @{ path = "qcdx$product_id/qcdx$product_id.inf"; label = "Gfx (base)" }
