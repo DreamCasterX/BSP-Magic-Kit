@@ -1,6 +1,6 @@
 $_creator = "Mike Lu (lu.mike@inventec.com)"
-$_version = 1.57
-$_changedate = 4/14/2026
+$_version = 1.58
+$_changedate = 5/6/2026
 
 
 # Set-ExecutionPolicy RemoteSigned
@@ -115,7 +115,35 @@ $driverConfigs = @(
 			"qcsecurity"
         )
         add_driver = @()
-    }
+    },
+    @{
+        name = "DominionQ"
+        remove_driver = @(
+            "qcSensorsConfig$product_id"
+            "Qccamtelesensor$product_id"
+            "Qccamultrawidesensor$product_id"
+            "qccamultrawidesensor_extension$product_id"
+            "qccamtelesensor_extension$product_id"
+            "qccamrearsensor_extension$product_id"
+            "qccamrearsensor$product_id"
+            "qcAlwaysOnSensing"
+			"qccamjpege_ffu$product_id"
+            "qcdxext_cdps$product_id"
+            "qcdxext_idp$product_id"
+            "qcdxext_idps$product_id"
+            "qcdxext_qcb$product_id"
+			"HalExtQCWdogTimer$product_id"
+			"qcdiagbridge$product_id"
+			"qcdiagrouter$product_id"
+			"emmcdl"
+			"qcfactory"
+			"QcScanFix"
+			"qcsecurity"
+        )
+        add_driver = @(
+            "qccamflash_ext$product_id"  # Added to the later of qccamflash$product_id
+        )
+    }	
 )
 $driverCheckList = @(
     @{ path = "qcdx$product_id/qcdx$product_id.inf"; label = "Gfx (base)" }
@@ -129,7 +157,7 @@ $driverCheckList = @(
 	# @{ path = "Camera_Optin_WOA/MEPOptInCameraExt.inf"; label = "MEP opt-in" }
 	@{ path = "qcSensors$product_id/qcSensors$product_id.inf"; label = "Sensor" }
     @{ path = "qcSensorsConfigCrd$product_id/qcSensorsConfigCrd$product_id.inf"; label = "SensorConfig" }
-	# @{ path = "LID_Service/HmxLaptopLidMonitor.inf"; label = "HMX LID service" }
+	@{ path = "HmxLaptopLidMonitor/HmxLaptopLidMonitor.inf"; label = "HMX LID service" }
     @{ path = "qcsubsys_ext_adsp$product_id/qcsubsys_ext_adsp$product_id.inf"; label = "aDSP" }
     @{ path = "QcTreeExtOem$product_id/QcTreeExtOem$product_id.inf"; label = "QcTreeExtOem" }
 	@{ path = "QcTreeExtQcom$product_id/QcTreeExtQcom$product_id.inf"; label = "QcTreeExtQcom" }
@@ -143,6 +171,12 @@ $driverCheckList = @(
 	# @{ path = "qcspi$product_id/qcspi$product_id.inf"; label = "SPI bus" }
 	# @{ path = "qcppx$product_id/qcppx$product_id.inf"; label = "PCIe" }
 )
+
+$oem_id_mapping = @{
+	'0x76' = 'HP'
+	'0x14d' = 'Qualcomm'
+}
+
 
 function Set-DebugModeInTotalUpdate {
     param(
@@ -467,7 +501,7 @@ function Update-PreloadedDrivers {
     }
 }
 
-        
+ 
 # Check if run as admin
 if (-not ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) {
     Write-Host "Please run this script with administrator privileges " -ForegroundColor Yellow
@@ -482,9 +516,9 @@ Write-Host "** BSP Magic Kit " -NoNewline
 Write-Host "v$_version" -ForegroundColor 'DarkYellow' -NoNewline
 Write-Host " **"
 Write-Host "=========================="
-Write-Host "1) Download BSP package"
+Write-Host "1) Download BSP source"
 Write-Host "2) Create USB installer"
-Write-Host "3) Update drivers (non-WinPE)"
+Write-Host "3) Replace drivers"
 Write-Host "4) Display driver info"    
 Write-Host "5) Copy thumbdrive to USB" 
 Write-Host "6) Make version.exe"
@@ -548,8 +582,6 @@ switch ($mainSelection) {
         do {
             $selection = Read-Host "Enter the number"
             $valid = $selection -match '^\d+$' -and [int]$selection -ge 1 -and [int]$selection -le $tags.Count
-            if (-not $valid) {
-            }
         } until ($valid)
 
         $release = $tags[$selection - 1]
@@ -1995,10 +2027,6 @@ switch ($mainSelection) {
                 break
             }
         }
-        # if (-not $product_id) {    # 此段先comment, 因為MEP driver不會有ID
-        #     Write-Host "Cannot detect product id from driver folder!" -ForegroundColor Red
-        #     return
-        # }
 
         foreach ($drv in $driverCheckList) {
             $infPath = Join-Path $driverDir $drv.path
@@ -2405,9 +2433,24 @@ static void Main(string[] args)
 
                 Write-Host ("  {0} " -f $img.Name) -ForegroundColor Yellow
                 # OEM ID line: label default color, value colored only
-                Write-Host "      OEM ID: " -NoNewline  
+                Write-Host "      OEM ID: " -NoNewline
                 $oemVal = if ($oemId) { $oemId.Trim() } else { 'N/A' }
-                if ($oemVal -eq 'N/A' -or $oemVal -match '^(?i)0x0$') { Write-Host $oemVal -ForegroundColor Red } else { Write-Host $oemVal -ForegroundColor Blue }
+                $oemName = 'Unknown'
+                if ($oemVal -ne 'N/A' -and $oemVal -notmatch '^(?i)0x0$') {
+                    $oemKeyNorm = $oemVal.Trim().ToLowerInvariant()
+                    foreach ($k in $oem_id_mapping.Keys) {
+                        if ($null -ne $k -and $k.Trim().ToLowerInvariant() -eq $oemKeyNorm) {
+                            $oemName = $oem_id_mapping[$k]
+                            break
+                        }
+                    }
+                }
+
+                if ($oemVal -eq 'N/A' -or $oemVal -match '^(?i)0x0$') {
+                    Write-Host $oemVal -ForegroundColor Red
+                } else {
+                    Write-Host ("{0} ({1})" -f $oemVal, $oemName) -ForegroundColor Blue
+                }
                 # OEM Product ID line: label default color, value colored only
                 Write-Host "      OEM Product ID: " -NoNewline
                 $prodVal = if ($prodId) { $prodId.Trim() } else { 'N/A' }
@@ -2418,6 +2461,7 @@ static void Main(string[] args)
                 Write-Host ("Failed to inspect: {0}" -f $_) -ForegroundColor Red
             }
         }
+		Write-Host ""
         Write-Host "Completed!" -ForegroundColor Green
         Write-Host ""
     }
