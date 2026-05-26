@@ -1,6 +1,6 @@
 $_creator = "Mike Lu (lu.mike@inventec.com)"
-$_version = 1.58
-$_changedate = 5/6/2026
+$_version = 1.59
+$_changedate = 5/26/2026
 
 
 # Set-ExecutionPolicy RemoteSigned
@@ -142,6 +142,31 @@ $driverCheckList = @(
 	# @{ path = "qci2c$product_id/qci2c$product_id.inf"; label = "I2C bus" }
 	# @{ path = "qcspi$product_id/qcspi$product_id.inf"; label = "SPI bus" }
 	# @{ path = "qcppx$product_id/qcppx$product_id.inf"; label = "PCIe" }
+)
+
+
+$attAllowDriverList = @(   # Follow section 3.3.3 in "80-79648-57_REV_AE_Glymur_Windows_Mobile_PC_Drivers_Reference_Manual.pdf"
+	"QCListenSM_swc$product_id"
+	"QCListenSM$product_id"
+	"QCListenSM_swc_Ext$product_id"
+	"QCDiagBridge$product_id"
+	"qcdiagrouter$product_id"
+	"qcqdss$product_id"
+	"qcrdbg$product_id"
+	"qcshutdownsvc$product_id"
+	"HalExtQCWdogTimer$product_id"
+	"QcMptfDevice$product_id"
+    "qcOobWindowsService$product_id"
+	"SysFwVersion"
+	"emmcdl"
+	"FVCreator"
+	"qcfactory"
+	"qcfirmware8480_CRD_NVME"
+	"qcfirmwareupdate"
+	"QcScanFix"
+	"qcsecurity"
+	"ufnserialcomposite"
+	# "qccamai$product_id"  There is WHQL driver  
 )
 
 $oem_id_mapping = @{
@@ -376,6 +401,37 @@ function Get-DriverSignType {
     }
 }
 
+function Test-IsWhqlSignedCatalog {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$FilePath
+    )
+
+    if (-not (Test-Path $FilePath)) {
+        return $false
+    }
+
+    try {
+        $sig = Get-AuthenticodeSignature -FilePath $FilePath
+        if (-not $sig -or -not $sig.SignerCertificate) {
+            return $false
+        }
+
+        $eku = $sig.SignerCertificate.Extensions | Where-Object { $_.Oid.FriendlyName -eq "Enhanced Key Usage" } | Select-Object -First 1
+        if (-not $eku) {
+            return $false
+        }
+
+        $ekuText = ($eku.Format($true) -split "`n" | Select-String -Pattern '\([0-9\.]+\)' | ForEach-Object {
+            $_.ToString().Trim() -replace '\s*\([0-9\.]+\)\s*$',''
+        }) -join ", "
+
+        return ($ekuText -like "*Windows Hardware Driver Extended Verification*")
+    } catch {
+        return $false
+    }
+}
+
 # Function to modify preloaded drivers
 function Update-PreloadedDrivers {
     param(
@@ -487,7 +543,7 @@ Write-Host ""
 Write-Host "** BSP Magic Kit " -NoNewline
 Write-Host "v$_version" -ForegroundColor 'DarkYellow' -NoNewline
 Write-Host " **"
-Write-Host "=========================="
+Write-Host "============================"
 Write-Host "1) Download BSP source"
 Write-Host "2) Create USB installer"
 Write-Host "3) Replace drivers"
@@ -496,11 +552,12 @@ Write-Host "5) Copy thumbdrive to USB"
 Write-Host "6) Make version.exe"
 Write-Host "7) Get BSP CVA info"
 Write-Host "8) Inspect secure sign"
-Write-Host "=========================="
+Write-Host "9) Find non-PS sign drivers"
+Write-Host "============================"
 
 do {
     $mainSelection = Read-Host "Select a function"
-} until ($mainSelection -eq '1' -or $mainSelection -eq '2' -or $mainSelection -eq '3' -or $mainSelection -eq '4' -or $mainSelection -eq '5' -or $mainSelection -eq '6' -or $mainSelection -eq '7' -or $mainSelection -eq '8')
+} until ($mainSelection -eq '1' -or $mainSelection -eq '2' -or $mainSelection -eq '3' -or $mainSelection -eq '4' -or $mainSelection -eq '5' -or $mainSelection -eq '6' -or $mainSelection -eq '7' -or $mainSelection -eq '8' -or $mainSelection -eq '9')
 
 switch ($mainSelection) {
     '1' {
@@ -2434,6 +2491,115 @@ static void Main(string[] args)
             }
         }
 		Write-Host ""
+        Write-Host "Completed!" -ForegroundColor Green
+        Write-Host ""
+    }
+    '9' {
+        # List non-WHQL signed drivers in USB installer
+        Write-Host ""
+        $bspFolders = Get-ChildItem -Directory | Where-Object { $_.Name -like ("$product*") }
+        $excludeNames = @($new_driver, $iso_folder, $fuse_folder)
+        if ($bspFolders) {
+            $excludeNames += @($bspFolders | ForEach-Object { $_.Name })
+        }
+
+        $usbInstallers = Get-ChildItem -Directory | Where-Object {
+            $_.Name -notin $excludeNames -and
+            (Test-Path (Join-Path $_.FullName "WP\prebuilt\$product_id\regrouped_driver"))
+        }
+
+        if (-not $usbInstallers -or $usbInstallers.Count -eq 0) {
+            Write-Host "No USB installer folders found" -ForegroundColor Yellow
+            Write-Host ""
+            return
+        }
+
+        Write-Host ""
+        Write-Host "List of the USB installers:"
+        $maxIndexLen = ($usbInstallers.Count).ToString().Length
+        for ($i = 0; $i -lt $usbInstallers.Count; $i++) {
+            $num = ($i + 1).ToString().PadLeft($maxIndexLen)
+            Write-Host ("{0}) {1}" -f $num, $usbInstallers[$i].Name)
+        }
+
+        do {
+            $selection = Read-Host "Enter the number"
+            $valid = $selection -match '^\d+$' -and [int]$selection -ge 1 -and [int]$selection -le $usbInstallers.Count
+        } until ($valid)
+
+        $selectedInstaller = $usbInstallers[$selection - 1]
+        Write-Host "Selected: " -NoNewline
+        Write-Host $selectedInstaller.Name -ForegroundColor Yellow
+        Write-Host ""
+
+        $regroupedDriverPath = Join-Path $selectedInstaller.FullName "WP\prebuilt\$product_id\regrouped_driver"
+        if (-not (Test-Path $regroupedDriverPath)) {
+            Write-Host "regrouped_driver folder not found: $regroupedDriverPath" -ForegroundColor Red
+            Write-Host ""
+            return
+        }
+
+        $driverDirs = Get-ChildItem -Path $regroupedDriverPath -Directory -ErrorAction SilentlyContinue
+        if (-not $driverDirs -or $driverDirs.Count -eq 0) {
+            Write-Host "No driver folders found in regrouped_driver" -ForegroundColor Yellow
+            Write-Host ""
+            return
+        }
+
+        # Build allow-list (ATT acceptable) driver folder names from $attAllowDriverList
+        # Supports plain folder-name strings (e.g. "qcdiagbridge$product_id") or @{ path = "folder/file.inf" } entries
+        $attAllowNames = @()
+        if ($attAllowDriverList) {
+            try {
+                $attAllowNames = @(
+                    $attAllowDriverList | ForEach-Object {
+                        if ($null -eq $_) { return }
+                        if ($_.path) {
+                            ($_.path -replace '\\','/') -split '/' | Select-Object -First 1
+                        } elseif ($_ -is [string]) {
+                            $_.Trim()
+                        }
+                    } | Where-Object { $_ -and $_.Trim().Length -gt 0 } | Select-Object -Unique
+                )
+            } catch {
+                $attAllowNames = @()
+            }
+        }
+
+        $nonWhqlDrivers = @()
+        foreach ($driverDir in $driverDirs) {
+            $catFiles = Get-ChildItem -Path $driverDir.FullName -Filter *.cat -File -ErrorAction SilentlyContinue
+            if (-not $catFiles -or $catFiles.Count -eq 0) {
+                $nonWhqlDrivers += @{ Name = $driverDir.Name; Empty = $true }
+                continue
+            }
+
+            $isWhql = $false
+            foreach ($catFile in $catFiles) {
+                if (Test-IsWhqlSignedCatalog -FilePath $catFile.FullName) {
+                    $isWhql = $true
+                    break
+                }
+            }
+            if (-not $isWhql) {
+                # If CAT exists and driver is in ATT allow-list, skip showing it
+                if ($attAllowNames -and ($attAllowNames -contains $driverDir.Name)) {
+                    continue
+                }
+                $nonWhqlDrivers += @{ Name = $driverDir.Name; Empty = $false }
+            }
+        }
+
+        Write-Host "Look for non-WHQL sign drivers..." -ForegroundColor Cyan
+        if ($nonWhqlDrivers.Count -eq 0) {
+            Write-Host "All drivers are WHQL signed" -ForegroundColor Blue
+        } else {
+            foreach ($item in ($nonWhqlDrivers | Sort-Object -Property Name)) {
+                $suffix = if ($item.Empty) { " (empty)" } else { "" }
+                Write-Host ("    {0}{1}" -f $item.Name, $suffix) -ForegroundColor Red
+            }
+        }
+        Write-Host ""
         Write-Host "Completed!" -ForegroundColor Green
         Write-Host ""
     }
