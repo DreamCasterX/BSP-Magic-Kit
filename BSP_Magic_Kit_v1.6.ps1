@@ -1,6 +1,6 @@
 $_creator = "Mike Lu (lu.mike@inventec.com)"
-$_version = 1.59
-$_changedate = 5/26/2026
+$_version = 1.6
+$_changedate = 6/18/2026
 
 
 # Set-ExecutionPolicy RemoteSigned
@@ -67,6 +67,8 @@ $driverConfigs = @(
 			"QcScanFix"
 			"qcsecurity"
 			# "qccamai$product_id"  uncomment for builds earlier than r4900 
+			"qpd" # for OOB feature disablement
+			"QPC" # for OOB feature disablement
         )
         add_driver = @(
             "qccamflash_ext$product_id"  # Added to the later of qccamflash$product_id
@@ -113,6 +115,8 @@ $driverConfigs = @(
 			"qcfactory"
 			"QcScanFix"
 			"qcsecurity"
+			"qpd" # for OOB feature disablement
+			"QPC" # for OOB feature disablement
         )
         add_driver = @()
     }
