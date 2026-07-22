@@ -1,6 +1,6 @@
 $_creator = "Mike Lu (lu.mike@inventec.com)"
-$_version = 1.6
-$_changedate = 6/18/2026
+$_version = 1.7
+$_changedate = 7/14/2026
 
 
 # Set-ExecutionPolicy RemoteSigned
@@ -34,11 +34,10 @@ $bspToIsoMapping = @{
 	'r04500' = '28000'
 	'r04500_x3' = '28000'
 	'r04500_x6' = '28000'
-	'r04800' = '28000'
-	'r04900' = '28000'
 	'r05000' = '28000'
 	'r05100' = '28000'
 	'r05200' = '28000'
+	'r05300' = '28000'
 }
 
 # Specific driver settings for Installer
@@ -67,11 +66,13 @@ $driverConfigs = @(
 			"QcScanFix"
 			"qcsecurity"
 			# "qccamai$product_id"  uncomment for builds earlier than r4900 
-			"qpd" # for OOB feature disablement
-			"QPC" # for OOB feature disablement
+			"qpd" # for OOB feature disablement (added in r5100)
+			"QPC" # for OOB feature disablement (added in r5100)
+			"QPC_install" # for OOB feature disablement (added in r5200)
         )
         add_driver = @(
-            "qccamflash_ext$product_id"  # Added to the later of qccamflash$product_id
+            @{ name = "qccamflash_ext$product_id"; after = "qccamflash$product_id" }
+            # @{ name = "qcppte_extension$product_id"; after = "ppte.wd$product_id" }  # for HPX BEM-PPM feature (added in r5100)  等CRD有出現這支的ATT/PS再uncomment
         )
     },
     @{
@@ -117,6 +118,7 @@ $driverConfigs = @(
 			"qcsecurity"
 			"qpd" # for OOB feature disablement
 			"QPC" # for OOB feature disablement
+			"QPC_install" # for OOB feature disablement (added in r5200)
         )
         add_driver = @()
     }
@@ -137,6 +139,7 @@ $driverCheckList = @(
     @{ path = "qcsubsys_ext_adsp$product_id/qcsubsys_ext_adsp$product_id.inf"; label = "aDSP" }
     @{ path = "QcTreeExtOem$product_id/QcTreeExtOem$product_id.inf"; label = "QcTreeExtOem" }
 	@{ path = "QcTreeExtQcom$product_id/QcTreeExtQcom$product_id.inf"; label = "QcTreeExtQcom" }
+	@{ path = "qcppte_extension$product_id/qcppte_extension$product_id.inf"; label = "PPTE (ext)" }
 	# @{ path = "qcnspmcdm$product_id/qcnspmcdm$product_id.inf"; label = "Hexagon NPU (cDSP)" }
 	# @{ path = "QcXhciFilter$product_id/QcXhciFilter$product_id.inf"; label = "xHCI" }
 	# @{ path = "QcUsb4Filter$product_id/QcUsb4Filter$product_id.inf"; label = "USB4" }
@@ -461,7 +464,7 @@ function Update-PreloadedDrivers {
     
     Write-Host "Add list:"
     if ($hasAddDrivers) {
-        $AddDrivers | ForEach-Object { Write-Host ("  $_") -ForegroundColor Blue }
+        $AddDrivers | ForEach-Object { Write-Host ("  $($_.name)") -ForegroundColor Blue }
     } else {
         Write-Host "  N/A" -ForegroundColor Gray
     }
@@ -485,14 +488,33 @@ function Update-PreloadedDrivers {
     try {
         $driversLines = Get-Content $DriversTxtPath -Encoding Default
         $newLines = @()
+        $addedDrivers = @{}
         foreach ($line in $driversLines) {
             $trimmedLine = $line.Trim()
             if ($hasRemoveDrivers -and $RemoveDrivers -contains $trimmedLine) {
                 continue # Skip this line
             }
             $newLines += $line # Add the current line
-            if ($trimmedLine -eq "qccamflash$ProductId" -and $hasAddDrivers) {
-                $newLines += $AddDrivers # Add new drivers after the anchor
+            if ($hasAddDrivers) {
+                foreach ($entry in $AddDrivers) {
+                    $driverName = $entry.name
+                    $anchor = $entry.after
+                    if (-not $anchor) {
+                        Write-Host "No 'after' anchor defined for add driver: $driverName" -ForegroundColor Yellow
+                        continue
+                    }
+                    if ($trimmedLine -eq $anchor) {
+                        $newLines += $driverName
+                        $addedDrivers[$driverName] = $true
+                    }
+                }
+            }
+        }
+        if ($hasAddDrivers) {
+            foreach ($entry in $AddDrivers) {
+                if (-not $addedDrivers[$entry.name]) {
+                    Write-Host "Anchor not found in drivers.txt: $($entry.after) (for $($entry.name))" -ForegroundColor Yellow
+                }
             }
         }
         Set-Content -Path $DriversTxtPath -Value $newLines -Encoding Default
