@@ -1,6 +1,6 @@
 $_creator = "Mike Lu (lu.mike@inventec.com)"
-$_version = 1.7
-$_changedate = 7/14/2026
+$_version = 1.8
+$_changedate = 8/11/2026
 
 
 # Set-ExecutionPolicy RemoteSigned
@@ -37,7 +37,8 @@ $bspToIsoMapping = @{
 	'r05000' = '28000'
 	'r05100' = '28000'
 	'r05200' = '28000'
-	'r05300' = '28000'
+	'r05300' = @('28000', '26220') # r5300 starts to support 25H2
+	'r05400' = @('28000', '26220')
 }
 
 # Specific driver settings for Installer
@@ -349,6 +350,31 @@ function Test-SectionExists {
     }
 }
 
+function Format-DriverVerDisplay {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$DriverVer
+    )
+
+    $formatVersionSegments = {
+        param([string]$VersionText)
+        $segments = $VersionText -split '\.'
+        $formatted = foreach ($seg in $segments) {
+            $trimmed = $seg.TrimStart('0')
+            if ([string]::IsNullOrEmpty($trimmed)) { '0' } else { $trimmed }
+        }
+        return ($formatted -join '.')
+    }
+
+    if ($DriverVer -match '^(.+?),\s*(.+)$') {
+        $datePart = $matches[1].Trim()
+        $versionPart = & $formatVersionSegments $matches[2].Trim()
+        return "$datePart,$versionPart"
+    }
+
+    return (& $formatVersionSegments $DriverVer)
+}
+
 function Get-DriverSignType {
     param(
         [Parameter(Mandatory = $true)]
@@ -589,14 +615,13 @@ switch ($mainSelection) {
     '1' {
         # Download BSP
         # Get versions from ChipCode (both tags and branches)
-		$old_repo_link = "https://chipmaster2.qti.qualcomm.com/home/git/inventec-corp/$product.git"
-		$new_repo_link = "https://qpm-git.qualcomm.com/home2/git/inventec-corp/$product.git"
+		$repo_link = "https://qpm-git.qualcomm.com/home2/git/inventec-corp/$product.git"
 		
-        $lsRemoteOutput = git ls-remote --tags --heads $new_repo_link 2>&1
+        $lsRemoteOutput = git ls-remote --tags --heads $repo_link 2>&1
         if ($LASTEXITCODE -ne 0) {
             Write-Host ""
             Write-Host "Failed to query releases from remote repo." -ForegroundColor Red
-            Write-Host ("Repo: {0}" -f $new_repo_link) -ForegroundColor DarkGray
+            Write-Host ("Repo: {0}" -f $repo_link) -ForegroundColor DarkGray
             Write-Host "git output:" -ForegroundColor DarkGray
             Write-Host $lsRemoteOutput
             Write-Host ""
@@ -618,7 +643,7 @@ switch ($mainSelection) {
         if (-not $tags -or $tags.Count -eq 0) {
             Write-Host ""
             Write-Host "No releases found (tags/branches list is empty)." -ForegroundColor Yellow
-            Write-Host ("Repo: {0}" -f $new_repo_link) -ForegroundColor DarkGray
+            Write-Host ("Repo: {0}" -f $repo_link) -ForegroundColor DarkGray
             Write-Host ""
             Read-Host "Press Enter to exit..."
             return
@@ -711,7 +736,7 @@ switch ($mainSelection) {
         $debugTargets = @()
         if (Test-Path $dstFolder) {
             do {
-				Write-Host "Thumbdrive folder already exists, overwrite? (y/n)" -ForegroundColor Red -NoNewline
+				Write-Host "Thumbdrive folder `"$thumbdrive`" already exists, overwrite? (y/n)" -ForegroundColor Red -NoNewline
                 $overwrite = Read-Host " "
             } until ($overwrite -eq 'y' -or $overwrite -eq 'Y' -or $overwrite -eq 'n' -or $overwrite -eq 'N')
             if ($overwrite -eq 'n' -or $overwrite -eq 'N') {
@@ -984,7 +1009,7 @@ switch ($mainSelection) {
             
             # Check if ADK version matches expected ISO version
             $adkVersionColor = "DarkGray"
-            if ($expectedIsoVersionForAdk -and $adkVersion -match "^.*$expectedIsoVersionForAdk.*$") {
+            if ($expectedIsoVersionForAdk -and (@($expectedIsoVersionForAdk) | Where-Object { $adkVersion -match [regex]::Escape([string]$_) })) {
                 $adkVersionColor = "Blue"
             } elseif ($expectedIsoVersionForAdk) {
                 $adkVersionColor = "Red"
@@ -1056,7 +1081,7 @@ switch ($mainSelection) {
             $isMatched = $false
             
             # Check if this ISO matches the expected version for selected BSP
-            if ($expectedIsoVersion -and $isoFileName -match "^.*$expectedIsoVersion.*$") {
+            if ($expectedIsoVersion -and (@($expectedIsoVersion) | Where-Object { $isoFileName -match [regex]::Escape([string]$_) })) {
                 $isMatched = $true
             }
             
@@ -1158,7 +1183,7 @@ switch ($mainSelection) {
             
             # Check if WinPE version matches expected ISO version
             $winpeVersionColor = "DarkGray"
-            if ($expectedIsoVersionForWinPE -and $winpeVersion -match "^.*$expectedIsoVersionForWinPE.*$") {
+            if ($expectedIsoVersionForWinPE -and (@($expectedIsoVersionForWinPE) | Where-Object { $winpeVersion -match [regex]::Escape([string]$_) })) {
                 $winpeVersionColor = "Blue"
             } elseif ($expectedIsoVersionForWinPE) {
                 $winpeVersionColor = "Red"
@@ -2092,7 +2117,7 @@ switch ($mainSelection) {
                     $lines = Get-Content $infPath -Encoding Default
                     foreach ($line in $lines) {
                         if ($line -match '^\s*DriverVer\s*=\s*(.+)$') {
-                            $ver = $matches[1].Trim()
+                            $ver = Format-DriverVerDisplay -DriverVer $matches[1].Trim()
                             break
                         }
                     }
