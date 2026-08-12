@@ -1235,18 +1235,19 @@ switch ($mainSelection) {
             Write-Host "No subfolders found in Updated_driver." -ForegroundColor Yellow
             Write-Host ""
         } else {
-            # Check if there's any sub-directory (Only ADSP/CDSP/HTP/qcdeviceinfo and ARM64 (qcdpps.exe/qdcmlib.dll) folders are allowed)
+            # Check if there's any sub-directory (Only ADSP/ADSP_4CH/CDSP/HTP/qcdeviceinfo and ARM64 (qcdpps.exe/qdcmlib.dll) folders are allowed)
             foreach ($sub in $iecSubFolders) {
                 $subSubFolders = Get-ChildItem -Path $sub.FullName -Directory
                 foreach ($subSub in $subSubFolders) {
                     $isADSP = ($subSub.Name -eq 'ADSP')
+					$isADSP2 = ($subSub.Name -eq 'ADSP_4CH')
                     $isCDSP = ($subSub.Name -eq 'CDSP')
                     $isHTP = ($subSub.Name -eq 'HTP')
                     $isQCDeviceInfo = ($subSub.Name -eq 'qcdeviceinfo')
                     $isARM64WithQcdpps = ($subSub.Name -eq 'ARM64' -and (Test-Path (Join-Path $subSub.FullName 'qcdpps.exe')))
                     $isARM64WithQdcmlib = ($subSub.Name -eq 'ARM64' -and (Test-Path (Join-Path $subSub.FullName 'qdcmlib.dll')))
 					$isARM64WithQcppte = ($subSub.Name -eq 'ARM64' -and (Test-Path (Join-Path $subSub.FullName 'qcppte8480.exe')))
-                    if (-not ($isADSP -or $isCDSP -or $isHTP -or $isQCDeviceInfo -or $isARM64WithQcdpps -or $isARM64WithQdcmlib -or $isARM64WithQcppte)) {
+                    if (-not ($isADSP -or $isADSP2 -or $isCDSP -or $isHTP -or $isQCDeviceInfo -or $isARM64WithQcdpps -or $isARM64WithQdcmlib -or $isARM64WithQcppte)) {
                         Write-Host "Found sub-directory in $($sub.Name) folder!" -ForegroundColor Red
                         Write-Host ""
                         Read-Host "Press Enter to exit..."
@@ -1807,18 +1808,19 @@ switch ($mainSelection) {
             Write-Host "No subfolders found in Updated_driver." -ForegroundColor Yellow
             Write-Host ""
         } else {
-             # Check if there's any sub-directory (Only ADSP/CDSP/HTP/qcdeviceinfo and ARM64 (qcdpps.exe/qdcmlib.dll) folders are allowed)
+             # Check if there's any sub-directory (Only ADSP/ADSP_4CH/CDSP/HTP/qcdeviceinfo and ARM64 (qcdpps.exe/qdcmlib.dll) folders are allowed)
              foreach ($sub in $iecSubFolders) {
                 $subSubFolders = Get-ChildItem -Path $sub.FullName -Directory
                 foreach ($subSub in $subSubFolders) {
                     $isADSP = ($subSub.Name -eq 'ADSP')
+					$isADSP2 = ($subSub.Name -eq 'ADSP_4CH')
                     $isCDSP = ($subSub.Name -eq 'CDSP')
                     $isHTP = ($subSub.Name -eq 'HTP')
                     $isQCDeviceInfo = ($subSub.Name -eq 'qcdeviceinfo')
                     $isARM64WithQcdpps = ($subSub.Name -eq 'ARM64' -and (Test-Path (Join-Path $subSub.FullName 'qcdpps.exe')))
                     $isARM64WithQdcmlib = ($subSub.Name -eq 'ARM64' -and (Test-Path (Join-Path $subSub.FullName 'qdcmlib.dll')))
 					$isARM64WithQcppte = ($subSub.Name -eq 'ARM64' -and (Test-Path (Join-Path $subSub.FullName 'qcppte8480.exe')))
-                    if (-not ($isADSP -or $isCDSP -or $isHTP -or $isQCDeviceInfo -or $isARM64WithQcdpps -or $isARM64WithQdcmlib -or $isARM64WithQcppte)) {
+                    if (-not ($isADSP -or $isADSP2 -or $isCDSP -or $isHTP -or $isQCDeviceInfo -or $isARM64WithQcdpps -or $isARM64WithQdcmlib -or $isARM64WithQcppte)) {
                         Write-Host "Found sub-directory in $($sub.Name) folder!" -ForegroundColor Red
                         Write-Host ""
                         Read-Host "Press Enter to exit..."
