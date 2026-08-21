@@ -1,9 +1,9 @@
 $_creator = "Mike Lu (lu.mike@inventec.com)"
-$_version = 1.8
-$_changedate = 8/11/2026
+$_version = 1.9
+$_changedate = 8/21/2026
 
 
-# Set-ExecutionPolicy RemoteSigned
+# Set-ExecutionPolicy Bypass
 
 
 # User-defined settings
@@ -23,6 +23,8 @@ $product_id = "8480"
 $new_driver = "Updated_driver"
 $iso_folder = "ISO"
 $fuse_folder = "FUSE"
+$adsp_ext_folder = "ADSP_Ext"
+$inf2cat_folder = "ADSP_Ext/bin"
 $cva_file = "CVA_info_BSP.txt"
 $enable_debugMode = $false
 $rename_efi = $true
@@ -37,8 +39,8 @@ $bspToIsoMapping = @{
 	'r05000' = '28000'
 	'r05100' = '28000'
 	'r05200' = '28000'
-	'r05300' = @('28000', '26220') # r5300 starts to support 25H2
-	'r05400' = @('28000', '26220')
+	'r05300' = @('28000', '26200') # r5300 starts to support 25H2
+	'r05400' = @('28000', '26200')
 }
 
 # Specific driver settings for Installer
@@ -141,15 +143,19 @@ $driverCheckList = @(
     @{ path = "QcTreeExtOem$product_id/QcTreeExtOem$product_id.inf"; label = "QcTreeExtOem" }
 	@{ path = "QcTreeExtQcom$product_id/QcTreeExtQcom$product_id.inf"; label = "QcTreeExtQcom" }
 	@{ path = "qcppte_extension$product_id/qcppte_extension$product_id.inf"; label = "PPTE (ext)" }
+	# @{ path = "ppte.wd$product_id/ppte.wd$product_id.inf"; cat = "ppte.wd$product_id/qcppte$product_id.cat"; label = "PPTE (base)" }
 	# @{ path = "qcnspmcdm$product_id/qcnspmcdm$product_id.inf"; label = "Hexagon NPU (cDSP)" }
 	# @{ path = "QcXhciFilter$product_id/QcXhciFilter$product_id.inf"; label = "xHCI" }
 	# @{ path = "QcUsb4Filter$product_id/QcUsb4Filter$product_id.inf"; label = "USB4" }
 	# @{ path = "QcUsbCUcsi$product_id/qcusbcucsi$product_id.inf"; label = "UCSI" }
-	# @{ path = "qcscm$product_id/qcscm$product_id.inf"; label = "QcSCM" }
+	# @{ path = "qcscm$product_id/qcscm$product_id.inf"; label = "SCM" }
 	# @{ path = "qcbluetooth$product_id/qcbluetooth$product_id.inf"; label = "BT" }
-	# @{ path = "qci2c$product_id/qci2c$product_id.inf"; label = "I2C bus" }
-	# @{ path = "qcspi$product_id/qcspi$product_id.inf"; label = "SPI bus" }
+	# @{ path = "qci2c$product_id/qci2c$product_id.inf"; label = "I2C" }
+	# @{ path = "qcgpi$product_id/qcgpi$product_id.inf"; label = "GPI" }
+	# @{ path = "qcspi$product_id/qcspi$product_id.inf"; label = "SPI" }
 	# @{ path = "qcppx$product_id/qcppx$product_id.inf"; label = "PCIe" }
+	# @{ path = "qcwlancol$product_id/qcwlancol$product_id.inf"; label = "WLAN (base)" }
+	# @{ path = "qcwlancol_ext$product_id/qcwlancol_ext$product_id.inf"; label = "WLAN (ext)" }
 )
 
 
@@ -581,6 +587,244 @@ function Update-PreloadedDrivers {
     }
 }
 
+function Get-WinPEBootFilesVersion {
+    try {
+        $pkg = Get-Package -ErrorAction Stop |
+            Where-Object { $_.Name -like 'Windows PE Boot Files (DesktopEditions)*' } |
+            Select-Object -First 1
+        if ($pkg -and $pkg.Version) {
+            return $pkg.Version.ToString().Trim()
+        }
+    } catch {}
+
+    $uninstallKeys = @(
+        'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\*',
+        'HKLM:\SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall\*'
+    )
+    foreach ($keyPath in $uninstallKeys) {
+        $entry = Get-ChildItem $keyPath -ErrorAction SilentlyContinue |
+            ForEach-Object { Get-ItemProperty $_.PSPath -ErrorAction SilentlyContinue } |
+            Where-Object { $_.DisplayName -like 'Windows PE Boot Files (DesktopEditions)*' } |
+            Select-Object -First 1
+        if ($entry -and $entry.DisplayVersion) {
+            return $entry.DisplayVersion.ToString().Trim()
+        }
+    }
+    return $null
+}
+
+function Get-OsInstallImagePath {
+    param([string]$ThumbdriveDst)
+
+    $names = @('install.wim', 'install.esd')
+    foreach ($name in $names) {
+        $rootPath = Join-Path $ThumbdriveDst $name
+        if (Test-Path $rootPath) { return $rootPath }
+        $sourcesPath = Join-Path $ThumbdriveDst (Join-Path 'sources' $name)
+        if (Test-Path $sourcesPath) { return $sourcesPath }
+    }
+    return $null
+}
+
+function Get-OsImageList {
+    param(
+        [string]$ImagePath,
+        [string]$DismExe
+    )
+
+    try {
+        $images = @(Get-WindowsImage -ImagePath $ImagePath -ErrorAction Stop)
+        if ($images.Count -gt 0) { return $images }
+    } catch {}
+
+    if ([string]::IsNullOrWhiteSpace($DismExe) -or -not (Test-Path $DismExe)) {
+        $DismExe = 'dism.exe'
+    }
+    $output = & $DismExe /Get-WimInfo /WimFile:$ImagePath
+    if ($LASTEXITCODE -ne 0) { return @() }
+
+    $list = @()
+    $currentIndex = $null
+    $currentName = $null
+    foreach ($line in $output) {
+        if ($line -match '^\s*Index\s*:\s*(\d+)\s*$') {
+            if ($null -ne $currentIndex -and $currentName) {
+                $list += [pscustomobject]@{ ImageIndex = [int]$currentIndex; ImageName = $currentName }
+            }
+            $currentIndex = $matches[1]
+            $currentName = $null
+        } elseif ($line -match '^\s*Name\s*:\s*(.+?)\s*$') {
+            $currentName = $matches[1].Trim()
+        }
+    }
+    if ($null -ne $currentIndex -and $currentName) {
+        $list += [pscustomobject]@{ ImageIndex = [int]$currentIndex; ImageName = $currentName }
+    }
+    return $list
+}
+
+function Select-AndExportOsEdition {
+    param(
+        [string]$ThumbdriveDst,
+        [string]$DismExe
+    )
+
+    $sourceImage = Get-OsInstallImagePath -ThumbdriveDst $ThumbdriveDst
+    if (-not $sourceImage) {
+        Write-Host "install.wim / install.esd not found after copying ISO." -ForegroundColor Red
+        return $false
+    }
+
+    if ([string]::IsNullOrWhiteSpace($DismExe) -or -not (Test-Path $DismExe)) {
+        $DismExe = 'dism.exe'
+    }
+
+    Write-Host "Reading OS editions..." -ForegroundColor Cyan
+    $images = @(Get-OsImageList -ImagePath $sourceImage -DismExe $DismExe)
+    if ($images.Count -eq 0) {
+        Write-Host "Failed to read editions from $sourceImage" -ForegroundColor Red
+        return $false
+    }
+
+    Write-Host "OS editions in install image:"
+    foreach ($img in $images) {
+        $name = [string]$img.ImageName
+        $color = 'DarkGray'
+        if ($name -match '(?i)(\bPro\b|Professional)') { $color = 'Blue' }
+        Write-Host ("{0}) " -f $img.ImageIndex) -NoNewline
+        Write-Host $name -ForegroundColor $color
+    }
+
+    $validIndexes = @($images | ForEach-Object { [int]$_.ImageIndex })
+    do {
+        $editionSelection = Read-Host "Enter the number"
+        $valid = $editionSelection -match '^\d+$' -and $validIndexes -contains [int]$editionSelection
+    } until ($valid)
+
+    $selectedIndex = [int]$editionSelection
+    $selected = $images | Where-Object { [int]$_.ImageIndex -eq $selectedIndex } | Select-Object -First 1
+	Write-Host "Selected: " -NoNewline
+    Write-Host ("{0}" -f $selected.ImageName) -ForegroundColor Yellow
+    Write-Host ""
+	
+
+    $destWim = Join-Path $ThumbdriveDst 'install.wim'
+    $alreadySingleMatch = ($images.Count -eq 1 -and $sourceImage -eq $destWim)
+    if ($alreadySingleMatch) {
+        Write-Host "Image already has a single edition. Skip export." -ForegroundColor Green
+        return $true
+    }
+
+    $tempWim = Join-Path $ThumbdriveDst 'install.export.wim'
+    if (Test-Path $tempWim) {
+        Remove-Item -Path $tempWim -Force
+    }
+
+    Write-Host "Exporting selected edition to install.wim..." -ForegroundColor Cyan
+    $dismArgs = @(
+        '/Export-Image'
+        "/SourceImageFile:$sourceImage"
+        "/SourceIndex:$selectedIndex"
+        "/DestinationImageFile:$tempWim"
+        '/Compress:max'
+    )
+    & $DismExe @dismArgs
+    if ($LASTEXITCODE -ne 0 -or -not (Test-Path $tempWim)) {
+        Write-Host "Failed to export selected OS edition." -ForegroundColor Red
+        if (Test-Path $tempWim) { Remove-Item -Path $tempWim -Force -ErrorAction SilentlyContinue }
+        return $false
+    }
+
+    foreach ($leftover in @(
+        (Join-Path $ThumbdriveDst 'install.wim'),
+        (Join-Path $ThumbdriveDst 'install.esd'),
+        (Join-Path $ThumbdriveDst 'sources\install.wim'),
+        (Join-Path $ThumbdriveDst 'sources\install.esd')
+    )) {
+        if ((Test-Path $leftover) -and ($leftover -ne $tempWim)) {
+            Remove-Item -Path $leftover -Force
+        }
+    }
+    Move-Item -Path $tempWim -Destination $destWim -Force
+    Write-Host "Completed!" -ForegroundColor Green
+    return $true
+}
+
+function Test-IsReadelfOnlyPatchFailure {
+    param(
+        [int]$ExitCode,
+        [string]$OutputText,
+        [string]$TmpPath
+    )
+
+    if ($ExitCode -eq 0) { return $false }
+    if (-not (Test-Path $TmpPath)) { return $false }
+    $hasFiles = @(Get-ChildItem -Path $TmpPath -Recurse -Force -ErrorAction SilentlyContinue)
+    if (-not $hasFiles) { return $false }
+
+    # 只要整段錯誤訊息中提到 gawk 或 readelf 找不到，而且 tmp 資料夾有檔案，就直接同意 bypass
+    if ([string]::IsNullOrWhiteSpace($OutputText)) { return $false }
+    if ($OutputText -match '(?i)(readelf|gawk)') {
+        return $true
+    }
+    return $false
+}
+
+
+function Clear-UsbDriveContents {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$DrivePath
+    )
+
+    if (-not (Test-Path -LiteralPath $DrivePath)) {
+        return $true
+    }
+
+    $topItems = @(Get-ChildItem -LiteralPath $DrivePath -Force -ErrorAction SilentlyContinue)
+    if ($topItems.Count -eq 0) {
+        return $true
+    }
+
+    # FAT32 USB files often carry ReadOnly/Hidden/System; clear before delete.
+    Get-ChildItem -LiteralPath $DrivePath -Force -Recurse -ErrorAction SilentlyContinue |
+        ForEach-Object { $_.Attributes = 'Normal' }
+
+    foreach ($item in $topItems) {
+        if (-not $item.PSIsContainer) {
+            Remove-Item -LiteralPath $item.FullName -Force -ErrorAction SilentlyContinue
+            continue
+        }
+
+        # Delete deepest paths first to avoid "The directory is not empty" in PS7.
+        Get-ChildItem -LiteralPath $item.FullName -Force -Recurse -ErrorAction SilentlyContinue |
+            Sort-Object { $_.FullName.Length } -Descending |
+            ForEach-Object {
+                Remove-Item -LiteralPath $_.FullName -Force -Recurse -ErrorAction SilentlyContinue
+            }
+        Remove-Item -LiteralPath $item.FullName -Force -Recurse -ErrorAction SilentlyContinue
+    }
+
+    $remaining = @(Get-ChildItem -LiteralPath $DrivePath -Force -ErrorAction SilentlyContinue)
+    if ($remaining.Count -eq 0) {
+        return $true
+    }
+
+    # Fallback: mirror an empty folder (works reliably on FAT32 USB).
+    $emptyDir = Join-Path $env:TEMP ("usb_clean_{0}" -f [guid]::NewGuid().ToString('N'))
+    New-Item -ItemType Directory -Path $emptyDir -Force | Out-Null
+    try {
+        & robocopy $emptyDir $DrivePath /MIR /R:2 /W:1 /NFL /NDL /NJH /NJS /NC /NS /NP | Out-Null
+        if ($LASTEXITCODE -gt 7) {
+            throw "robocopy failed (exit code $LASTEXITCODE)"
+        }
+    } finally {
+        Remove-Item -LiteralPath $emptyDir -Force -Recurse -ErrorAction SilentlyContinue
+    }
+
+    return -not @(Get-ChildItem -LiteralPath $DrivePath -Force -ErrorAction SilentlyContinue)
+}
+
  
 # Check if run as admin
 if (-not ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) {
@@ -605,11 +849,12 @@ Write-Host "6) Make version.exe"
 Write-Host "7) Get BSP CVA info"
 Write-Host "8) Inspect secure sign"
 Write-Host "9) Find non-PS sign drivers"
+Write-Host "10) Build qcsubsys_ext_adsp"
 Write-Host "============================"
 
 do {
     $mainSelection = Read-Host "Select a function"
-} until ($mainSelection -eq '1' -or $mainSelection -eq '2' -or $mainSelection -eq '3' -or $mainSelection -eq '4' -or $mainSelection -eq '5' -or $mainSelection -eq '6' -or $mainSelection -eq '7' -or $mainSelection -eq '8' -or $mainSelection -eq '9')
+} until ($mainSelection -eq '1' -or $mainSelection -eq '2' -or $mainSelection -eq '3' -or $mainSelection -eq '4' -or $mainSelection -eq '5' -or $mainSelection -eq '6' -or $mainSelection -eq '7' -or $mainSelection -eq '8' -or $mainSelection -eq '9' -or $mainSelection -eq '10')
 
 switch ($mainSelection) {
     '1' {
@@ -1124,8 +1369,11 @@ switch ($mainSelection) {
             Write-Host "Unmounting ISO..." 
             Dismount-DiskImage -ImagePath $isoPath | Out-Null
             $installWim = Join-Path $thumbdriveDst "sources\install.wim"
+            $installEsd = Join-Path $thumbdriveDst "sources\install.esd"
             if (Test-Path $installWim) {
                 Move-Item -Path $installWim -Destination $thumbdriveDst -Force
+            } elseif (Test-Path $installEsd) {
+                Move-Item -Path $installEsd -Destination $thumbdriveDst -Force
             }
             Write-Host "Completed!" -ForegroundColor Green
             
@@ -1143,6 +1391,13 @@ switch ($mainSelection) {
                 Read-Host "Press Enter to exit..."
                 return
             }
+
+            Write-Host ""
+            if (-not (Select-AndExportOsEdition -ThumbdriveDst $thumbdriveDst -DismExe $adkDism)) {
+                Write-Host ""
+                Read-Host "Press Enter to exit..."
+                return
+            }
         } catch {
             Write-Host "Failed to copy ISO folders: $_" -ForegroundColor Red
         }
@@ -1151,12 +1406,8 @@ switch ($mainSelection) {
         # Copy WinPE Add-ons file (winpe.win) and delete boot.wim
         Write-Host "Copying WinPE file to Thumbdrive..." -ForegroundColor Cyan
         $winpeWim = "C:\Program Files (x86)\Windows Kits\10\Assessment and Deployment Kit\Windows Preinstallation Environment\arm64\en-us\winpe.wim"
-		try {
-			$winpeVersion = (Get-Package | Where-Object { $_.Name -like "Windows PE Boot Files (DesktopEditions)*" }).Version.ToString().Trim()
-		} catch {
-			$winpeVersion = $null
-		}
-	
+        $winpeVersion = Get-WinPEBootFilesVersion
+
         if ($winpeVersion) {
             Write-Host "WinPE version: " -NoNewline
             
@@ -1592,6 +1843,8 @@ switch ($mainSelection) {
                 return
             }
 
+
+            
             # Split install.wim
             Write-Host ""
             Write-Host "Spliting install.wim file..." -ForegroundColor Cyan
@@ -2141,7 +2394,12 @@ switch ($mainSelection) {
         Write-Host ""
         Write-Host "Check driver signing..." -ForegroundColor Cyan
         foreach ($drv in $driverCheckList) {
-            $catPath = (Join-Path $driverDir $drv.path) -replace '\.inf$', '.cat'
+			if ($drv.ContainsKey("cat")) {
+				$catPath = Join-Path $driverDir $drv.cat
+			}
+			else {
+				$catPath = (Join-Path $driverDir $drv.path) -replace '\.inf$', '.cat'
+			}
             $label = $drv.label
             $signInfo = Get-DriverSignType -FilePath $catPath
             Write-Host -NoNewline ("  {0}: " -f $label)
@@ -2188,10 +2446,13 @@ switch ($mainSelection) {
             $selection = Read-Host "Enter the number to copy files"
             $valid = $selection -match '^[1-9][0-9]*$' -and $selection -ge 1 -and $selection -le $usbArray.Count
         } until ($valid)
-        $targetDrive = $usbArray[$selection - 1].DeviceID + '\\'
+        $targetDrive = $usbArray[$selection - 1].DeviceID + '\'
         # Clean USB drive
+        Write-Host "Clearing USB drive $targetDrive ..." -ForegroundColor Yellow
         try {
-            Get-ChildItem -Path $targetDrive -Force | Remove-Item -Recurse -Force
+            if (-not (Clear-UsbDriveContents -DrivePath $targetDrive)) {
+                throw "Some files could not be removed from $targetDrive"
+            }
         } catch {
             Write-Host "Failed to clear USB drive: $_" -ForegroundColor Red
             Write-Host ""
@@ -2653,6 +2914,185 @@ static void Main(string[] args)
             }
         }
         Write-Host ""
+        Write-Host "Completed!" -ForegroundColor Green
+        Write-Host ""
+    }
+    '10' {
+        # Build qcsubsys_ext_adsp
+        Write-Host ""
+        Write-Host "Building qcsubsys_ext_adsp..." -ForegroundColor Cyan
+        Write-Host ""
+
+        $adspExtPath = Join-Path $PWD $adsp_ext_folder
+        if (!(Test-Path $adspExtPath)) {
+            Write-Host "$adsp_ext_folder folder not found" -ForegroundColor Red
+            Write-Host ""
+            Read-Host "Press Enter to exit..."
+            return
+        }
+
+        # Check one-level child folder named adsp_proc
+        $adspProcFolder = Get-ChildItem -Path $adspExtPath -Directory -ErrorAction SilentlyContinue |
+            Where-Object { $_.Name -eq 'adsp_proc' } |
+            Select-Object -First 1
+        if (-not $adspProcFolder) {
+            Write-Host "adsp_proc (compiled code changes) folder not found in $adsp_ext_folder" -ForegroundColor Red
+            Write-Host ""
+            Read-Host "Press Enter to exit..."
+            return
+        }
+
+        # List BSP source packages
+        $folders = Get-ChildItem -Directory | Where-Object { $_.Name -like ("$product*") }
+        if ($folders.Count -eq 0) {
+            Write-Host "No BSP source folders found" -ForegroundColor Yellow
+            Write-Host ""
+            Read-Host "Press Enter to exit..."
+            return
+        }
+        Write-Host ""
+        Write-Host "List of the BSP source packages (" -NoNewline
+		Write-Host "build script path" -ForegroundColor Yellow -NoNewline
+		Write-Host "):"
+        $maxIndexLen = ($folders.Count).ToString().Length
+        for ($i = 0; $i -lt $folders.Count; $i++) {
+            $num = ($i+1).ToString().PadLeft($maxIndexLen)
+            Write-Host ("{0}) {1}" -f $num, $folders[$i].Name)
+        }
+        do {
+            $selection = Read-Host "Enter the number"
+            $valid = $selection -match '^\d+$' -and [int]$selection -ge 1 -and [int]$selection -le $folders.Count
+        } until ($valid)
+        $srcRoot = $folders[$selection - 1].FullName
+        Write-Host "Selected: " -NoNewline
+        Write-Host "$($folders[$selection - 1].Name)" -ForegroundColor Yellow
+        Write-Host ""
+
+        # Switch to Subsys_NHPatching script path
+        $nhPatchingPath = Join-Path $srcRoot "WP\prebuilt\$product_id\app\Subsys_NHPatching"
+        if (!(Test-Path $nhPatchingPath)) {
+            Write-Host "Subsys_NHPatching script path not found" -ForegroundColor Red
+            Write-Host ""
+            Read-Host "Press Enter to exit..."
+            return
+        }
+
+        # Delete tmp folder under ADSP_Ext if exists
+        $tmpPath = Join-Path $adspExtPath 'tmp'
+        if (Test-Path $tmpPath) {
+            Remove-Item -Path $tmpPath -Recurse -Force
+        }
+
+        $patchScript = Join-Path $nhPatchingPath 'PatchExtInfWrapper.ps1'
+        if (!(Test-Path $patchScript)) {
+            Write-Host "PatchExtInfWrapper.ps1 not found" -ForegroundColor Red
+            Write-Host ""
+            Read-Host "Press Enter to exit..."
+            return
+        }
+
+        Write-Host "Running PatchExtInfWrapper.ps1..." -ForegroundColor Cyan
+        $patchLogPath = Join-Path $env:TEMP ("BSP_Magic_PatchExtInf_{0}.log" -f ([guid]::NewGuid().ToString('N')))
+        try {
+            Push-Location $nhPatchingPath
+            & powershell -NoProfile -f PatchExtInfWrapper.ps1 -NH_VARIANT Debug -NH_IMAGE ADSP -NH_BUILD $adspExtPath -OUT_DIR $tmpPath -v *> $patchLogPath
+            $patchExitCode = $LASTEXITCODE
+            Pop-Location
+
+            $patchOutputText = ''
+            if (Test-Path $patchLogPath) {
+                Get-Content -Path $patchLogPath | Write-Host
+                $patchOutputText = Get-Content -Path $patchLogPath -Raw
+            }
+        } catch {
+            try { Pop-Location } catch {}
+            if (Test-Path $tmpPath) {
+                Remove-Item -Path $tmpPath -Recurse -Force -ErrorAction SilentlyContinue
+            }
+            Write-Host "Failed to run PatchExtInfWrapper.ps1: $_" -ForegroundColor Red
+            Write-Host ""
+            Read-Host "Press Enter to exit..."
+            return
+        } finally {
+            Remove-Item -Path $patchLogPath -Force -ErrorAction SilentlyContinue
+        }
+
+        $readelfOnlyFailure = Test-IsReadelfOnlyPatchFailure -ExitCode $patchExitCode -OutputText $patchOutputText -TmpPath $tmpPath
+        if ($readelfOnlyFailure) {
+            Write-Host "[warning] readelf not found; patch output detected, bypassing..." -ForegroundColor Yellow
+            Write-Host ""
+        }
+
+        if ($patchExitCode -ne 0 -and -not $readelfOnlyFailure) {
+            if (Test-Path $tmpPath) {
+                Remove-Item -Path $tmpPath -Recurse -Force -ErrorAction SilentlyContinue
+            }
+            Write-Host "PatchExtInfWrapper.ps1 failed (exit code: $patchExitCode)" -ForegroundColor Red
+            Write-Host ""
+            Read-Host "Press Enter to exit..."
+            return
+        }
+
+        if (!(Test-Path $tmpPath)) {
+            Write-Host "Patch output tmp folder not found" -ForegroundColor Red
+            Write-Host ""
+            Read-Host "Press Enter to exit..."
+            return
+        }
+
+        $outputFolderName = "qcsubsys_ext_adsp$product_id"
+        $qcsubsysFolder = Join-Path $tmpPath $outputFolderName
+
+        # Remove subsysbins folder from tmp output
+        $subsysbinsPath = Join-Path $tmpPath 'subsysbins_folder'
+        if (Test-Path $subsysbinsPath) {
+            Remove-Item -Path $subsysbinsPath -Recurse -Force
+        }
+
+        if (!(Test-Path $qcsubsysFolder)) {
+            New-Item -Path $qcsubsysFolder -ItemType Directory -Force | Out-Null
+        }
+
+        # Move everything except qcsubsys_ext_adsp folder into qcsubsys_ext_adsp folder
+        Get-ChildItem -Path $tmpPath -Force | Where-Object { $_.Name -ne $outputFolderName } | ForEach-Object {
+            Move-Item -Path $_.FullName -Destination $qcsubsysFolder -Force
+        }
+
+        # Move qcsubsys_ext_adsp to ADSP_Ext and remove tmp
+        $finalOutputPath = Join-Path $adspExtPath $outputFolderName
+        if (Test-Path $finalOutputPath) {
+            Remove-Item -Path $finalOutputPath -Recurse -Force
+        }
+        Move-Item -Path $qcsubsysFolder -Destination $adspExtPath -Force
+        Remove-Item -Path $tmpPath -Recurse -Force -ErrorAction SilentlyContinue
+
+        Write-Host "Creating CAT file..." -ForegroundColor Cyan
+        $inf2catExe = Join-Path (Join-Path $PWD $inf2cat_folder) 'Inf2Cat.exe'
+        if (!(Test-Path $inf2catExe)) {
+            Write-Host "Inf2Cat.exe not found: $inf2catExe" -ForegroundColor Red
+            Write-Host ""
+            Read-Host "Press Enter to exit..."
+            return
+        }
+
+        try {
+            & $inf2catExe /driver:"$finalOutputPath" /os:Server10_ARM64
+            $inf2catExitCode = $LASTEXITCODE
+        } catch {
+            Write-Host "Failed to run Inf2Cat.exe: $_" -ForegroundColor Red
+            Write-Host ""
+            Read-Host "Press Enter to exit..."
+            return
+        }
+
+        $catFiles = Get-ChildItem -Path $finalOutputPath -Filter *.cat -File -ErrorAction SilentlyContinue
+        if (-not $catFiles -or $catFiles.Count -eq 0 -or $inf2catExitCode -ne 0) {
+            Write-Host "Failed to create CAT file" -ForegroundColor Red
+            Write-Host ""
+            Read-Host "Press Enter to exit..."
+            return
+        }
+
         Write-Host "Completed!" -ForegroundColor Green
         Write-Host ""
     }
