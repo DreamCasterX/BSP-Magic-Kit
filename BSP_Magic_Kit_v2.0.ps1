@@ -1,6 +1,6 @@
 $_creator = "Mike Lu (lu.mike@inventec.com)"
-$_version = 1.9
-$_changedate = 8/21/2026
+$_version = "2.0"
+$_changedate = 8/25/2026
 
 
 # Set-ExecutionPolicy Bypass
@@ -72,10 +72,11 @@ $driverConfigs = @(
 			"qpd" # for OOB feature disablement (added in r5100)
 			"QPC" # for OOB feature disablement (added in r5100)
 			"QPC_install" # for OOB feature disablement (added in r5200)
+			"emmcdlarm64" # added in r5300
         )
         add_driver = @(
             @{ name = "qccamflash_ext$product_id"; after = "qccamflash$product_id" }
-            # @{ name = "qcppte_extension$product_id"; after = "ppte.wd$product_id" }  # for HPX BEM-PPM feature (added in r5100)  等CRD有出現這支的ATT/PS再uncomment
+            @{ name = "qcppte_extension$product_id"; after = "ppte.wd$product_id" }  # for HPX BEM-PPM feature (added in r5100)  如果CRD有出現這支的ATT/PS要uncomment (ex: r5301.1)
         )
     },
     @{
@@ -122,6 +123,7 @@ $driverConfigs = @(
 			"qpd" # for OOB feature disablement
 			"QPC" # for OOB feature disablement
 			"QPC_install" # for OOB feature disablement (added in r5200)
+			"emmcdlarm64" # added in r5300
         )
         add_driver = @()
     }
@@ -181,6 +183,7 @@ $attAllowDriverList = @(   # Follow section 3.3.3 in "80-79648-57_REV_AE_Glymur_
 	"qcsecurity"
 	"ufnserialcomposite"
 	# "qccamai$product_id"  There is WHQL driver  
+	"emmcdlarm64"  # added in r5300
 )
 
 $oem_id_mapping = @{
@@ -419,7 +422,33 @@ function Get-DriverSignType {
                 return @{ Type = "ATT-signed"; Color = "Yellow" }
             }
             if ($ekuText -like "*Windows Hardware Driver Extended Verification*") {
-                return @{ Type = "WHQL signed"; Color = "Blue" }
+                
+                # --- 白名單比對版：精準抓取真實 Windows 版本，拒絕雜訊 ---
+                $osSuffix = ""
+                try {
+                    $catBytes = [System.IO.File]::ReadAllBytes($FilePath)
+                    
+                    # 1. 以 Latin1 讀取每一個 Byte
+                    $rawText = [System.Text.Encoding]::GetEncoding("ISO-8859-1").GetString($catBytes)
+                    
+                    # 2. 清除不可見字元
+                    $cleanText = $rawText -replace '[^\x20-\x7E]', ''
+
+                    # 3. 使用真實 Windows 系統版本的白名單清單進行匹配
+                    $validOSPattern = '(?i)(20H2|21H1|21H2|22H2|23H2|24H2|25H1|25H2|26H1|26H2)'
+                    
+                    $osMatches = [regex]::Matches($cleanText, $validOSPattern) | 
+                                 ForEach-Object { $_.Value.ToUpper() } | 
+                                 Select-Object -Unique | 
+                                 Sort-Object
+
+                    if ($osMatches) {
+                        $osSuffix = " (" + ($osMatches -join "/") + ")"
+                    }
+                } catch { }
+                # --------------------------------------------------------
+
+                return @{ Type = "WHQL signed$osSuffix"; Color = "Blue" }
             }
             if ($ekuText -like "*Lifetime Signing*") {   # EKU = Lifetime Signing, Preview Build Signing, Windows Hardware Driver Verification
                 return @{ Type = "Non-WHQL signed"; Color = "DarkMagenta" }
